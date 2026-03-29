@@ -1,13 +1,14 @@
 import { configureStore } from '@reduxjs/toolkit';
-import workoutReducer from './workoutSlice';
 import availabilityReducer from './availabilitySlice';
+import workoutReducer from './workoutSlice';
 
 export const store = configureStore({
     reducer: {
-        workout: workoutReducer,
         availability: availabilityReducer,
+        workout: workoutReducer,
     },
 });
 
+// Types
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

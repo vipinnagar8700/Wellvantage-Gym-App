@@ -5,41 +5,38 @@ import {
     StyleSheet,
     TouchableOpacity,
     FlatList,
-    SafeAreaView,
     Image,
     StatusBar,
     TextInput,
     Platform,
     ScrollView,
+    KeyboardAvoidingView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MiniCalendar from '../components/MiniCalendar';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Switch } from 'react-native';
 import CustomToggle from '../components/CustomToggle';
-interface Workout {
-    id: string;
-    title: string;
-}
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '../../store';
+import { addSlot, deleteSlot } from '../../store/availabilitySlice';
+import { addWorkout, deleteWorkout, Exercise, Workout } from '../../store/workoutSlice';
 
 const GymWorkScreen: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'Workout' | 'Client' | 'Availability' | 'Book Slots'>('Workout');
-    // state
-    const [showWorkoutForm, setShowWorkoutForm] = useState(false);
-    const [workouts, setWorkouts] = useState<Workout[]>([
-        { id: '1', title: "Beginner's Workout - 3 Days" },
-        { id: '2', title: "Beginner's Full Body - 1 Day" },
-    ]);
 
-    const handleDelete = (id: string) => {
-        setWorkouts(prev => prev.filter(item => item.id !== id));
+    const [activeTab, setActiveTab] = useState<'Workout' | 'Client' | 'Availability' | 'Book Slots'>('Workout');
+    const [showWorkoutForm, setShowWorkoutForm] = useState(false);
+    const dispatch = useDispatch<AppDispatch>();
+    const workouts = useSelector((state: RootState) => state.workout.workouts);
+
+    const handleDeleteWorkout = (id: number) => {
+        dispatch(deleteWorkout(id));
     };
 
     const renderItem = ({ item }: { item: Workout }) => (
         <View style={styles.item}>
-            <Text style={styles.itemText}>{item.title}</Text>
+            <Text style={styles.itemText}>{`${item.title} - ${item.days.length} Day${item.days.length > 1 ? 's' : ''}`}</Text>
 
-            <TouchableOpacity onPress={() => handleDelete(item.id)}>
+            <TouchableOpacity onPress={() => handleDeleteWorkout(item.id)}>
                 <Image
                     source={require('../../assets/image/delete-icon.png')} // 🔥 your delete icon
                     style={styles.deleteIcon}
@@ -48,57 +45,306 @@ const GymWorkScreen: React.FC = () => {
             </TouchableOpacity>
         </View>
     );
-    const [date, setDate] = useState(new Date());
+    const [date, setDate] = useState<Date | null>(null);
     const [showDatePicker, setShowDatePicker] = useState(false);
 
-    const [startTime, setStartTime] = useState(new Date());
+    const [startTime, setStartTime] = useState<Date | null>(null);
     const [showStartTimePicker, setShowStartTimePicker] = useState(false);
 
-    const [endTime, setEndTime] = useState(new Date());
+    const [endTime, setEndTime] = useState<Date | null>(null);
     const [showEndTimePicker, setShowEndTimePicker] = useState(false);
 
     const onChangeDate = (event: any, selectedDate?: Date) => {
         setShowDatePicker(Platform.OS === 'ios');
-        if (selectedDate) setDate(selectedDate);
+        if (selectedDate) {
+            setDate(selectedDate);
+            setDateError('');
+            setAvailabilityError('');
+        }
     };
 
     const onChangeStartTime = (event: any, selectedTime?: Date) => {
         setShowStartTimePicker(Platform.OS === 'ios');
-        if (selectedTime) setStartTime(selectedTime);
+        if (selectedTime) {
+            setStartTime(selectedTime);
+            setStartTimeError('');
+            setAvailabilityError('');
+
+            if (endTime && endTime > selectedTime) {
+                setEndTimeError('');
+            }
+        }
     };
 
     const onChangeEndTime = (event: any, selectedTime?: Date) => {
         setShowEndTimePicker(Platform.OS === 'ios');
-        if (selectedTime) setEndTime(selectedTime);
+        if (selectedTime) {
+            setEndTime(selectedTime);
+
+            if (startTime && selectedTime <= startTime) {
+                setEndTimeError('End time must be later than start time.');
+            } else {
+                setEndTimeError('');
+                setAvailabilityError('');
+            }
+        }
     };
-    const [exercises, setExercises] = useState([
-        { id: Date.now(), name: 'Bench Press', sets: '', reps: '', weight: '' },
-    ]);
+
 
     const addExercise = () => {
         setExercises([
             ...exercises,
-            { id: Date.now(), name: 'Bench Press', sets: '', reps: '', weight: '' },
+            { id: Date.now(), name: '', sets: '', reps: '' },
         ]);
     };
 
-    const deleteExercise = (id) => {
+    const deleteExercise = (id: number) => {
         setExercises(exercises.filter(item => item.id !== id));
     };
 
-    const updateField = (id, field, value) => {
+    const updateField = (id: number, field: string, value: string) => {
+        if (exerciseErrors[id]) {
+            setExerciseErrors(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
+        }
+
+        setWorkoutError('');
+
         setExercises(prev =>
             prev.map(item =>
                 item.id === id ? { ...item, [field]: value } : item
             )
         );
     };
-    return (
-        <SafeAreaProvider style={styles.container}>
 
-            {/* HEADER */}
-            <StatusBar barStyle="light-content"
-                backgroundColor="#a71313" />
+    const [dayEntries, setDayEntries] = useState([{ id: Date.now(), value: '' }]);
+
+    const addDayEntry = () => {
+        setDayEntries(prev => [...prev, { id: Date.now() + prev.length, value: '' }]);
+    };
+
+    const updateDayEntry = (id: number, value: string) => {
+        if (dayErrors[id]) {
+            setDayErrors(prev => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+            });
+        }
+
+        setWorkoutError('');
+
+        setDayEntries(prev => prev.map(day => (day.id === id ? { ...day, value } : day)));
+    };
+
+    const deleteDayEntry = (id: number) => {
+        setDayEntries(prev => (prev.length > 1 ? prev.filter(day => day.id !== id) : prev));
+    };
+
+    const [workoutError, setWorkoutError] = useState('');
+    const [availabilityError, setAvailabilityError] = useState('');
+    const [planNameError, setPlanNameError] = useState('');
+    const [notesError, setNotesError] = useState('');
+    const [dayErrors, setDayErrors] = useState<Record<number, string>>({});
+    const [exerciseErrors, setExerciseErrors] = useState<Record<number, string>>({});
+    const [dateError, setDateError] = useState('');
+    const [startTimeError, setStartTimeError] = useState('');
+    const [endTimeError, setEndTimeError] = useState('');
+    const [sessionNameError, setSessionNameError] = useState('');
+
+    const handleSubmitWorkout = () => {
+        let hasError = false;
+        const nextDayErrors: Record<number, string> = {};
+        const nextExerciseErrors: Record<number, string> = {};
+
+        setPlanNameError('');
+        setNotesError('');
+        setDayErrors({});
+        setExerciseErrors({});
+
+        if (!planName.trim()) {
+            setPlanNameError('Plan name is required.');
+            hasError = true;
+        }
+
+        dayEntries.forEach(day => {
+            if (!day.value.trim()) {
+                nextDayErrors[day.id] = 'Day name is required.';
+                hasError = true;
+            }
+        });
+
+        exercises.forEach(ex => {
+            if (!ex.name.trim() || !ex.sets.trim() || !ex.reps.trim()) {
+                nextExerciseErrors[ex.id] = 'Exercise name, sets and reps are required.';
+                hasError = true;
+                return;
+            }
+
+            if (!/^\d+$/.test(ex.sets) || !/^\d+$/.test(ex.reps) || Number(ex.sets) <= 0 || Number(ex.reps) <= 0) {
+                nextExerciseErrors[ex.id] = 'Sets/Reps must be positive numbers.';
+                hasError = true;
+            }
+        });
+
+        if (!text.trim()) {
+            setNotesError('Notes are required.');
+            hasError = true;
+        }
+
+        if (wordCount > maxWords) {
+            setNotesError(`Maximum ${maxWords} words allowed.`);
+            hasError = true;
+        }
+
+        setDayErrors(nextDayErrors);
+        setExerciseErrors(nextExerciseErrors);
+
+        if (hasError) {
+            setWorkoutError('Please fix highlighted workout fields.');
+            return;
+        }
+
+        setWorkoutError('');
+
+        const workout = {
+            id: Date.now(),
+            title: planName.trim(),
+            days: dayEntries.map(day => day.value.trim()),
+            exercises,
+            notes: text.trim(),
+        };
+
+        dispatch(addWorkout(workout));
+
+        // reset form
+        setPlanName('');
+        setDayEntries([{ id: Date.now(), value: '' }]);
+        setExercises([{ id: Date.now(), name: '', sets: '', reps: '' }]);
+        setText('');
+        setPlanNameError('');
+        setNotesError('');
+        setDayErrors({});
+        setExerciseErrors({});
+        setShowWorkoutForm(false);
+    };
+    const [sessionName, setSessionName] = useState<string>('');
+    const [isRepeat, setIsRepeat] = useState<boolean>(false);
+    const [slotCreated, setSlotCreated] = useState(false);
+
+    const handleCreateSlot = () => {
+        setDateError('');
+        setStartTimeError('');
+        setEndTimeError('');
+        setSessionNameError('');
+
+        let hasError = false;
+
+        if (!date) {
+            setDateError('Date is required.');
+            hasError = true;
+        }
+
+        if (!startTime) {
+            setStartTimeError('Start time is required.');
+            hasError = true;
+        }
+
+        if (!endTime) {
+            setEndTimeError('End time is required.');
+            hasError = true;
+        }
+
+        if (startTime && endTime && endTime <= startTime) {
+            setEndTimeError('End time must be later than start time.');
+            hasError = true;
+        }
+
+        if (!sessionName.trim()) {
+            setSessionNameError('Session name is required.');
+            hasError = true;
+        }
+
+        if (hasError) {
+            setAvailabilityError('Please fix highlighted availability fields.');
+            return;
+        }
+
+        const selectedDate = date as Date;
+        const selectedStartTime = startTime as Date;
+        const selectedEndTime = endTime as Date;
+
+        setAvailabilityError('');
+
+        const slot = {
+            id: Date.now(),
+            date: selectedDate.toISOString(),
+            startTime: selectedStartTime.toISOString(),
+            endTime: selectedEndTime.toISOString(),
+            sessionName: sessionName.trim(),
+            repeat: isRepeat,
+        };
+
+        dispatch(addSlot(slot));
+        setSessionName('');
+        setDate(null);
+        setStartTime(null);
+        setEndTime(null);
+        setIsRepeat(false);
+        setDateError('');
+        setStartTimeError('');
+        setEndTimeError('');
+        setSessionNameError('');
+        setSlotCreated(true);
+        setTimeout(() => setSlotCreated(false), 3000);
+    };
+    const slots = useSelector((state: RootState) => state.availability.slots);
+    const [planName, setPlanName] = useState<string>('');
+
+    const handlePlanNameChange = (value: string) => {
+        setPlanName(value);
+        setPlanNameError('');
+        setWorkoutError('');
+    };
+
+    const handleSessionNameChange = (value: string) => {
+        setSessionName(value);
+        setSessionNameError('');
+        setAvailabilityError('');
+    };
+
+    const [exercises, setExercises] = useState<Exercise[]>([
+        { id: Date.now(), name: '', sets: '', reps: '' },
+    ]);
+    const keyboardVerticalOffset = Platform.OS === 'ios' ? 110 : 0;
+    const [text, setText] = useState('');
+    const maxWords = 50;
+
+    const wordCount = text.trim().length === 0
+        ? 0
+        : text.trim().split(/\s+/).length;
+
+    const remaining = maxWords - wordCount;
+
+    const handleNotesChange = (value: string) => {
+        const words = value.trim().length === 0 ? [] : value.trim().split(/\s+/);
+
+        if (words.length <= maxWords) {
+            setText(value);
+            setNotesError('');
+            setWorkoutError('');
+            return;
+        }
+
+        setText(words.slice(0, maxWords).join(' '));
+        setNotesError(`Maximum ${maxWords} words allowed.`);
+    };
+
+    return (
+        <View style={styles.container}>
             <View style={styles.header}>
                 <TouchableOpacity>
                     <Image source={require('../../assets/image/menu-icon.png')} style={styles.icon} />
@@ -113,10 +359,8 @@ const GymWorkScreen: React.FC = () => {
             </View>
 
             {/* TABS */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.tabs}
+            <View
+                style={styles.tabs}
             >
                 {(['Workout', 'Client', 'Availability', 'Book Slots'] as const).map(tab => (
                     <TouchableOpacity key={tab} style={styles.tabItem} onPress={() => setActiveTab(tab)}>
@@ -126,25 +370,25 @@ const GymWorkScreen: React.FC = () => {
                         {activeTab === tab && <View style={styles.underline} />}
                     </TouchableOpacity>
                 ))}
-            </ScrollView>
+            </View>
 
             {/* CONTENT */}
-            {activeTab === 'Workout' && (
-                <ScrollView
-                    contentContainerStyle={{
-                        flexGrow: 1,
-                        justifyContent: 'flex-start',
-                        paddingVertical: 20, width: '100%',
-                    }}
-                    showsVerticalScrollIndicator={false}
-                >
-                    {!showWorkoutForm ? (
+            <KeyboardAvoidingView
+                style={styles.contentContainer}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={keyboardVerticalOffset}
+            >
+                {activeTab === 'Workout' && (
+                    !showWorkoutForm ? (
                         <View style={styles.workoutListContainer}>
                             <FlatList
                                 data={workouts}
-                                keyExtractor={item => item.id}
+                                keyExtractor={item => item.id.toString()}
                                 renderItem={renderItem}
+                                style={styles.workoutList}
                                 showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                keyboardDismissMode="on-drag"
                                 contentContainerStyle={styles.workoutListContent}
                                 ListHeaderComponent={(
                                     <View style={styles.sectionHeader}>
@@ -155,7 +399,10 @@ const GymWorkScreen: React.FC = () => {
 
                             <TouchableOpacity
                                 style={styles.faba}
-                                onPress={() => setShowWorkoutForm(true)}
+                                onPress={() => {
+                                    setWorkoutError('');
+                                    setShowWorkoutForm(true);
+                                }}
                             >
                                 <Image
                                     source={require('../../assets/image/plus-icon.png')}
@@ -165,40 +412,72 @@ const GymWorkScreen: React.FC = () => {
                         </View>
                     ) : (
                         // 🔥 WORKOUT FORM UI (like your image)
-                        <ScrollView style={{ flex: 1, padding: 15 }}>
+                        <ScrollView
+                            style={styles.tabScroll}
+                            contentContainerStyle={styles.workoutFormContent}
+                            keyboardShouldPersistTaps="handled"
+                            keyboardDismissMode="on-drag"
+                            automaticallyAdjustKeyboardInsets
+                            showsVerticalScrollIndicator={false}
+                        >
 
                             <Text style={styles.sectionTitleBook}>Add Workout Plan</Text>
 
                             {/* Plan Name */}
                             <TextInput
-                                style={styles.itemInput}
-                                placeholder="Beginner's Workout - 3 days"
+                                style={[styles.itemInput, planNameError ? styles.itemInputError : null]}
+                                placeholder="Workout plan name"
+                                value={planName}
+                                onChangeText={handlePlanNameChange}
                             />
+                            {planNameError ? <Text style={styles.fieldErrorText}>{planNameError}</Text> : null}
+
+                            {workoutError ? (
+                                <View style={styles.errorBanner}>
+                                    <Text style={styles.errorText}>{workoutError}</Text>
+                                </View>
+                            ) : null}
 
                             {/* Day Button */}
-                            <View style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
-                                <TouchableOpacity style={{
-                                    backgroundColor: '#28A745',
-                                    padding: 10, borderTopLeftRadius: 25, borderBottomLeftRadius: 25,
-                                    width: 80,
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    <Text style={{ color: '#fff', fontFamily: 'Poppins-Medium' }}>Day 1</Text>
-                                </TouchableOpacity>
-                                <TextInput style={[styles.itemInput, { width: '60%' }]} placeholder="3" />
-                                <TouchableOpacity style={{
-                                    padding: 10,
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    <Image
-                                        source={require('../../assets/image/delete-icon.png')}
-                                        style={{ width: 20, height: 20, tintColor: 'red' }}
-                                        resizeMode='center'
+                            {dayEntries.map((day, index) => (
+                                <View key={day.id} style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
+                                    <View style={{
+                                        backgroundColor: '#28A745',
+                                        padding: 10, borderTopLeftRadius: 25, borderBottomLeftRadius: 25,
+                                        width: 80,
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}>
+                                        <Text style={{ color: '#fff', fontFamily: 'Poppins-Medium' }}>{`Day ${index + 1}`}</Text>
+                                    </View>
+                                    <TextInput
+                                        style={[styles.itemInput, { width: '60%' }, dayErrors[day.id] ? styles.itemInputError : null]}
+                                        placeholder="Day name"
+                                        value={day.value}
+                                        onChangeText={(val) => updateDayEntry(day.id, val)}
                                     />
-                                </TouchableOpacity>
-                            </View>
+                                    <TouchableOpacity
+                                        style={{
+                                            padding: 10,
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}
+                                        onPress={() => deleteDayEntry(day.id)}
+                                    >
+                                        <Image
+                                            source={require('../../assets/image/delete-icon.png')}
+                                            style={{ width: 20, height: 20, tintColor: dayEntries.length === 1 ? '#C4C4C4' : 'red' }}
+                                            resizeMode='center'
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                            {Object.values(dayErrors).length > 0 ? <Text style={styles.fieldErrorText}>Each day name is required.</Text> : null}
+
+                            {/* Add Day Button */}
+                            <TouchableOpacity style={styles.addBtn} onPress={addDayEntry}>
+                                <Text style={{ color: '#fff', fontSize: 22 }}>+</Text>
+                            </TouchableOpacity>
 
                             {/* Exercise Row */}
                             <View style={{ padding: 15 }}>
@@ -207,7 +486,7 @@ const GymWorkScreen: React.FC = () => {
                                         <View style={styles.row}>
 
                                             <TextInput
-                                                style={styles.titleInput}
+                                                style={[styles.titleInput, exerciseErrors[item.id] ? styles.itemInputError : null]}
                                                 value={item.name}
                                                 onChangeText={(val) => updateField(item.id, 'name', val)}
                                                 placeholder="Exercise Name"
@@ -217,7 +496,7 @@ const GymWorkScreen: React.FC = () => {
                                             <View style={styles.inputBox}>
                                                 {index === 0 && <Text style={styles.label}>Sets</Text>}
                                                 <TextInput
-                                                    style={styles.input}
+                                                    style={[styles.input, exerciseErrors[item.id] ? styles.itemInputError : null]}
                                                     value={item.sets}
                                                     onChangeText={(val) => updateField(item.id, 'sets', val)}
                                                     placeholder="3"
@@ -229,7 +508,7 @@ const GymWorkScreen: React.FC = () => {
                                             <View style={styles.inputBox}>
                                                 {index === 0 && <Text style={styles.label}>Reps</Text>}
                                                 <TextInput
-                                                    style={styles.input}
+                                                    style={[styles.input, exerciseErrors[item.id] ? styles.itemInputError : null]}
                                                     value={item.reps}
                                                     onChangeText={(val) => updateField(item.id, 'reps', val)}
                                                     placeholder="10"
@@ -246,6 +525,7 @@ const GymWorkScreen: React.FC = () => {
                                             </TouchableOpacity>
 
                                         </View>
+                                        {exerciseErrors[item.id] ? <Text style={styles.fieldErrorText}>{exerciseErrors[item.id]}</Text> : null}
                                     </View>
                                 ))}
 
@@ -254,6 +534,24 @@ const GymWorkScreen: React.FC = () => {
                                     <Text style={{ color: '#fff', fontSize: 22 }}>+</Text>
                                 </TouchableOpacity>
                             </View>
+                            <View style={styles.containerbox}>
+                                <View style={styles.box}>
+                                    <TextInput
+                                        value={text}
+                                        onChangeText={handleNotesChange}
+                                        placeholder="Bench Press: www.benchpress.com
+Eat Oats"
+                                        placeholderTextColor="#999"
+                                        multiline
+                                        style={[styles.inputbox, notesError ? styles.itemInputError : null]}
+                                    />
+
+                                    <Text style={styles.counter}>
+                                        {remaining} words remaining
+                                    </Text>
+                                </View>
+                                {notesError ? <Text style={styles.fieldErrorText}>{notesError}</Text> : null}
+                            </View>
                             {/* Submit */}
                             <TouchableOpacity style={{
                                 marginTop: 30,
@@ -261,8 +559,8 @@ const GymWorkScreen: React.FC = () => {
                                 padding: 15,
                                 borderRadius: 10,
                                 alignItems: 'center'
-                            }}>
-                                <Text style={{ color: '#fff' }}>Submit</Text>
+                            }} onPress={handleSubmitWorkout}>
+                                <Text style={{ color: '#fff', fontFamily: 'Poppins-Regular' }}>Submit</Text>
                             </TouchableOpacity>
 
                             {/* Back Button */}
@@ -270,190 +568,225 @@ const GymWorkScreen: React.FC = () => {
                                 onPress={() => setShowWorkoutForm(false)}
                                 style={{ marginTop: 15, alignItems: 'center' }}
                             >
-                                <Text style={{ color: 'red' }}>Cancel</Text>
+                                <Text style={{ color: 'red', fontFamily: 'Poppins-Regular' }}>Cancel</Text>
                             </TouchableOpacity>
 
                         </ScrollView>
-                    )}
-                </ScrollView>
-            )}
-            {activeTab === 'Availability' && (
-                <ScrollView
-                    contentContainerStyle={{
-                        flexGrow: 1,
-                        alignItems: 'center',
-                        justifyContent: 'flex-start',
-                        paddingVertical: 20,
-                    }}
-                    showsVerticalScrollIndicator={false}
-                >
-                    <Text style={styles.sectionTitleBook}>Set Availability</Text>
+                    )
+                )}
+                {activeTab === 'Availability' && (
+                    <ScrollView
+                        style={styles.tabScroll}
+                        contentContainerStyle={styles.availabilityContent}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
+                        automaticallyAdjustKeyboardInsets
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Text style={styles.sectionTitleBook}>Set Availability</Text>
 
-                    {/* Date Picker */}
-                    <View style={{ width: '100%', paddingHorizontal: 15, marginTop: 10 }}>
-                        <Text style={styles.sectionTitle}>Date*</Text>
 
-                        <TouchableOpacity
-                            onPress={() => setShowDatePicker(true)}
-                            style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                borderWidth: 1,
-                                borderColor: '#ccc',
-                                borderRadius: 10,
-                                paddingHorizontal: 10,
-                                height: 45,
-                                backgroundColor: '#fff'
-                            }}
-                        >
-                            <Text style={{ flex: 1, color: '#333' }}>
-                                {date ? date.toLocaleDateString() : 'Select Date'}
-                            </Text>
-                            <Image
-                                source={require('../../assets/image/calender-icon.png')} // 🔥 your calendar icon
-                                style={{ width: 20, height: 20, tintColor: '#333' }}
-                                resizeMode="contain"
-                            />
-                        </TouchableOpacity>
 
-                        {showDatePicker && (
-                            <DateTimePicker
-                                value={date}
-                                mode="date"
-                                display="calendar"
-                                onChange={onChangeDate}
-                            />
+                        {/* Date Picker */}
+                        <View style={{ width: '100%', paddingHorizontal: 15, marginTop: 10 }}>
+                            <Text style={styles.sectionTitle}>Date*</Text>
+
+                            <TouchableOpacity
+                                onPress={() => setShowDatePicker(true)}
+                                style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    borderWidth: 1,
+                                    borderColor: dateError ? '#DC2626' : '#ccc',
+                                    borderRadius: 10,
+                                    paddingHorizontal: 10,
+                                    height: 45,
+                                    backgroundColor: '#fff'
+                                }}
+                            >
+                                <Text style={{ flex: 1, color: '#333' }}>
+                                    {date ? date.toLocaleDateString() : 'Select Date'}
+                                </Text>
+                                <Image
+                                    source={require('../../assets/image/calender-icon.png')} // 🔥 your calendar icon
+                                    style={{ width: 20, height: 20, tintColor: '#333' }}
+                                    resizeMode="contain"
+                                />
+                            </TouchableOpacity>
+
+                            {showDatePicker && (
+                                <DateTimePicker
+                                    value={date ?? new Date()}
+                                    mode="date"
+                                    display="calendar"
+                                    onChange={onChangeDate}
+                                />
+                            )}
+                            {dateError ? <Text style={styles.fieldErrorText}>{dateError}</Text> : null}
+                        </View>
+
+                        {/* Start & End Time Picker */}
+                        <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, marginTop: 10, marginBottom: 20 }}>
+
+                            <View style={{ width: '48%' }}>
+                                <Text style={styles.sectionTitle}>Start Time*</Text>
+                                <TouchableOpacity onPress={() => setShowStartTimePicker(true)}>
+                                    <TextInput
+                                        style={[styles.itemInput, startTimeError ? styles.itemInputError : null]}
+                                        placeholder='Select Start Time'
+                                        value={startTime ? startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                        editable={false}
+                                    />
+                                </TouchableOpacity>
+                                {showStartTimePicker && (
+                                    <DateTimePicker
+                                        value={startTime ?? new Date()}
+                                        mode="time"
+                                        display="spinner"
+                                        onChange={onChangeStartTime}
+                                    />
+                                )}
+                                {startTimeError ? <Text style={styles.fieldErrorText}>{startTimeError}</Text> : null}
+                            </View>
+
+                            <View style={{ width: '48%' }}>
+                                <Text style={styles.sectionTitle}>End Time*</Text>
+                                <TouchableOpacity onPress={() => setShowEndTimePicker(true)}>
+                                    <TextInput
+                                        style={[styles.itemInput, endTimeError ? styles.itemInputError : null]}
+                                        placeholder='Select End Time'
+                                        value={endTime ? endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                        editable={false}
+                                    />
+                                </TouchableOpacity>
+                                {showEndTimePicker && (
+                                    <DateTimePicker
+                                        value={endTime ?? new Date()}
+                                        mode="time"
+                                        display="spinner"
+                                        onChange={onChangeEndTime}
+                                    />
+                                )}
+                                {endTimeError ? <Text style={styles.fieldErrorText}>{endTimeError}</Text> : null}
+                            </View>
+                        </View>
+                        <View style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            width: '100%',
+                            paddingHorizontal: 15, marginBottom: 20
+                        }}>
+                            <Text style={styles.sectionTitleBookAvailibility}>Repeat Sessions</Text>
+                            <CustomToggle value={isRepeat} onValueChange={setIsRepeat} />
+                        </View>
+
+                        {/* Mini Calendar */}
+                        <MiniCalendar selectedDate={date ?? undefined} />
+
+                        {/* Session Name */}
+                        <View style={{ width: '100%', paddingHorizontal: 15, marginTop: 10 }}>
+                            <Text style={styles.sectionTitle}>Session Name*</Text>
+                            <TextInput style={[styles.itemInput, sessionNameError ? styles.itemInputError : null]}
+                                placeholder="Session name..."
+                                value={sessionName}
+                                onChangeText={handleSessionNameChange} />
+                            {sessionNameError ? <Text style={styles.fieldErrorText}>{sessionNameError}</Text> : null}
+                        </View>
+                        {availabilityError ? (
+                            <View style={styles.errorBanner}>
+                                <Text style={styles.errorText}>{availabilityError}</Text>
+                            </View>
+                        ) : null}
+                        {slotCreated && (
+                            <View style={styles.successBanner}>
+                                <Text style={styles.successText}>✓ Availability slot created successfully!</Text>
+                            </View>
                         )}
-                    </View>
+                        <TouchableOpacity style={{
+                            marginTop: 30,
+                            backgroundColor: '#28A745',
+                            paddingVertical: 12,
+                            borderRadius: 10,
+                            alignItems: 'center',
+                        }} onPress={handleCreateSlot}   >
+                            <Text style={{ color: '#fff', fontFamily: 'Poppins-SemiBold', paddingHorizontal: 60 }}>Create</Text>
+                        </TouchableOpacity>
+                    </ScrollView>
+                )}
+                {activeTab === 'Book Slots' && (
+                    <ScrollView
+                        style={styles.tabScroll}
+                        contentContainerStyle={styles.bookSlotsContent}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
+                        automaticallyAdjustKeyboardInsets
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Text style={styles.sectionTitleBook}>Book Client Slots</Text>
+                        <MiniCalendar selectedDate={date ?? undefined} />
+                        <Text style={styles.sectionTitleBooka}>Available Slots:
+                        </Text>
 
-                    {/* Start & End Time Picker */}
-                    <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, marginTop: 10, marginBottom: 20 }}>
+                        <View style={{ width: '100%', paddingHorizontal: 15, borderRadius: 10 }}>
+                            <View style={{ width: '100%', paddingHorizontal: 5 }}>
+                                {slots.length === 0 ? (
+                                    <View style={styles.emptyState}>
+                                        <Text style={styles.emptyStateText}>No slots exist yet.</Text>
+                                        <Text style={styles.emptyStateSubText}>Go to Availability tab to create a slot.</Text>
+                                    </View>
+                                ) : slots.map((item) => (
+                                    <View
+                                        key={item.id}
+                                        style={{
+                                            flexDirection: 'row',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center', marginTop: 3
+                                        }}
+                                    >
+                                        <TextInput
+                                            style={[styles.itemInput, { width: '50%' }]}
+                                            value={`${new Date(item.startTime).toLocaleTimeString([], {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                            })} - ${new Date(item.endTime).toLocaleTimeString([], {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                            })}`}
+                                            editable={false}
+                                        />
 
-                        <View style={{ width: '48%' }}>
-                            <Text style={styles.sectionTitle}>Start Time*</Text>
-                            <TouchableOpacity onPress={() => setShowStartTimePicker(true)}>
-                                <TextInput
-                                    style={styles.itemInput}
-                                    placeholder='Select Start Time'
-                                    value={startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    editable={false}
-                                />
-                            </TouchableOpacity>
-                            {showStartTimePicker && (
-                                <DateTimePicker
-                                    value={startTime}
-                                    mode="time"
-                                    display="spinner"
-                                    onChange={onChangeStartTime}
-                                />
-                            )}
-                        </View>
+                                        <View
+                                            style={{
+                                                width: 98,
+                                                height: 38,
+                                                backgroundColor: '#CBF9D7',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <Text style={{ color: '#10B981', fontFamily: 'Poppins-SemiBold' }}>
+                                                Open
+                                            </Text>
+                                        </View>
 
-                        <View style={{ width: '48%' }}>
-                            <Text style={styles.sectionTitle}>End Time*</Text>
-                            <TouchableOpacity onPress={() => setShowEndTimePicker(true)}>
-                                <TextInput
-                                    style={styles.itemInput}
-                                    placeholder='Select End Time'
-                                    value={endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    editable={false}
-                                />
-                            </TouchableOpacity>
-                            {showEndTimePicker && (
-                                <DateTimePicker
-                                    value={endTime}
-                                    mode="time"
-                                    display="spinner"
-                                    onChange={onChangeEndTime}
-                                />
-                            )}
-                        </View>
-                    </View>
-                    <View style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        width: '100%',
-                        paddingHorizontal: 15, marginBottom: 20
-                    }}>
-                        <Text style={styles.sectionTitleBookAvailibility}>Repeat Sessions</Text>
-                        <CustomToggle />
-                    </View>
-
-                    {/* Mini Calendar */}
-                    <MiniCalendar />
-
-                    {/* Session Name */}
-                    <View style={{ width: '100%', paddingHorizontal: 15, marginTop: 10 }}>
-                        <Text style={styles.sectionTitle}>Session Name*</Text>
-                        <TextInput style={styles.itemInput} placeholder='Session name...' />
-                    </View>
-                    <TouchableOpacity style={{
-                        marginTop: 30,
-                        backgroundColor: '#28A745',
-                        paddingVertical: 12,
-                        borderRadius: 10,
-                        alignItems: 'center',
-                    }}>
-                        <Text style={{ color: '#fff', fontFamily: 'Poppins-SemiBold', paddingHorizontal: 60 }}>Create</Text>
-                    </TouchableOpacity>
-                </ScrollView>
-            )}
-            {activeTab === 'Book Slots' && (
-                <ScrollView
-                    contentContainerStyle={{
-                        flexGrow: 1,
-                        alignItems: 'center',         // horizontal centering
-                        justifyContent: 'flex-start', // top alignment
-                        paddingVertical: 20,    // spacing from top
-                    }}
-                    showsVerticalScrollIndicator={false}
-                >
-                    <Text style={styles.sectionTitleBook}>Book Client Slots</Text>
-                    <MiniCalendar />
-                    <Text style={styles.sectionTitleBooka}>Available Slots:
-                    </Text>
-
-                    <View style={{ width: '100%', paddingHorizontal: 15, borderRadius: 10 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <TextInput style={[styles.itemInput, { width: '50%' }]} placeholder='10:00 AM - 11:00 AM' readOnly />
-                            <View style={{ width: 98, height: 38, backgroundColor: '#CBF9D7', borderRadius: 0, alignItems: 'center', justifyContent: 'center' }}>
-                                <Text style={{ color: '#10B981', fontFamily: 'Poppins-SemiBold' }}>Open</Text>
+                                        <TouchableOpacity onPress={() => dispatch(deleteSlot(item.id))}>
+                                            <Image
+                                                source={require('../../assets/image/delete-icon.png')}
+                                                style={styles.deleteIcon}
+                                                resizeMode='center'
+                                            />
+                                        </TouchableOpacity>
+                                    </View>
+                                ))}
                             </View>
-                            <TouchableOpacity>
-                                <View style={{ borderRadius: 0, alignItems: 'center', justifyContent: 'center' }}>
-                                    <Image
-                                        source={require('../../assets/image/delete-icon.png')} // 🔥 your delete icon
-                                        style={styles.deleteIcon}
-                                        resizeMode='center'
-                                    />
-                                </View>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    <View style={{ width: '100%', paddingHorizontal: 15, borderRadius: 10, marginTop: 20 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <TextInput style={[styles.itemInput, { width: '50%' }]} placeholder='10:00 AM - 11:00 AM' readOnly />
-                            <View style={{ width: 98, height: 38, backgroundColor: '#CBF9D7', borderRadius: 0, alignItems: 'center', justifyContent: 'center' }}>
-                                <Text style={{ color: '#10B981', fontFamily: 'Poppins-SemiBold' }}>Open</Text>
-                            </View>
-                            <TouchableOpacity>
-                                <View style={{ borderRadius: 0, alignItems: 'center', justifyContent: 'center' }}>
-                                    <Image
-                                        source={require('../../assets/image/delete-icon.png')} // 🔥 your delete icon
-                                        style={styles.deleteIcon}
-                                        resizeMode='center'
-                                    />
-                                </View>
-                            </TouchableOpacity>
                         </View>
 
-                    </View>
-                    {/* Remove duplicate text if not needed */}
-                </ScrollView>
-            )}
-
-        </SafeAreaProvider>
+                        {/* Remove duplicate text if not needed */}
+                    </ScrollView>
+                )}
+            </KeyboardAvoidingView>
+        </View>
 
     );
 };
@@ -461,6 +794,29 @@ const GymWorkScreen: React.FC = () => {
 export default GymWorkScreen;
 
 const styles = StyleSheet.create({
+    containerbox: {
+        backgroundColor: '#fff',
+        flex: 1,
+    },
+    box: {
+        borderRadius: 12,
+        padding: 10,
+        minHeight: 180,
+        justifyContent: 'space-between', borderWidth: 1, borderColor: '#D9D9D9'
+    },
+    inputbox: {
+        fontSize: 15,
+        color: '#666',
+        lineHeight: 32,
+        textAlignVertical: 'top', // important for multiline
+        fontFamily: 'Poppins-Regular',
+    },
+    counter: {
+        textAlign: 'right',
+        color: '#FF9933',
+        fontSize: 12,
+        fontWeight: '500', fontFamily: 'Poppins-Regular',
+    },
     container: {
         flex: 1,
         backgroundColor: '#fff',
@@ -495,10 +851,19 @@ const styles = StyleSheet.create({
     tabs: {
         flexDirection: 'row',
         backgroundColor: '#fff',
-        paddingHorizontal: 15,
-        marginTop: 20,
+        paddingHorizontal: 5,
+        marginTop: 0,
         borderBottomWidth: 1,
-        borderBottomColor: '#E0E0E0', height: 45
+        borderBottomColor: '#E0E0E0', height: 48,  // slight increase for safe tap area
+        alignItems: 'center',
+    },
+    contentContainer: {
+        flex: 1,
+        minHeight: 0,
+    },
+    tabScroll: {
+        flex: 1,
+        width: '100%',
     },
 
     tabItem: {
@@ -546,7 +911,10 @@ const styles = StyleSheet.create({
         flex: 1,
         fontFamily: 'Poppins-Medium',
         fontSize: 14,
-        paddingVertical: 2, marginTop: 30
+        color: '#333',
+        paddingVertical: 6,
+        marginTop: 0,
+        minHeight: 40,
     },
     deleteIcon: {
         width: 20,
@@ -592,7 +960,7 @@ const styles = StyleSheet.create({
         shadowColor: '#737373',
         shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.25,
-        shadowRadius: 3,
+        shadowRadius: 3, marginTop: 50
     },
     sectionTitle: {
         fontFamily: 'Poppins-SemiBold',
@@ -600,7 +968,7 @@ const styles = StyleSheet.create({
     },
     sectionTitleBook: {
         fontFamily: 'Poppins-SemiBold',
-        color: '#333', fontSize: 18, marginBottom: 20,
+        color: '#333', fontSize: 18, marginBottom: 20, marginTop: 50
     },
     sectionTitleBooka: {
         fontFamily: 'Poppins-SemiBold',
@@ -621,10 +989,32 @@ const styles = StyleSheet.create({
     },
     workoutListContainer: {
         flex: 1,
+        width: '100%',
+    },
+    workoutList: {
+        flex: 1,
     },
     workoutListContent: {
-        paddingTop: 20,
-        paddingBottom: 100,
+        paddingTop: 12,
+        paddingBottom: 24,
+    },
+    workoutFormContent: {
+        padding: 15,
+        paddingBottom: 140,
+    },
+    availabilityContent: {
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        paddingVertical: 8,
+        paddingBottom: 140,
+    },
+    bookSlotsContent: {
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        paddingVertical: 8,
+        paddingBottom: 120,
     },
 
     itemText: {
@@ -634,6 +1024,15 @@ const styles = StyleSheet.create({
     itemInput: {
         borderWidth: 1, borderColor: '#28A745', borderRadius: 8, padding: 10, width: '100%', fontFamily: 'Poppins-Regular',
         color: '#333',
+    },
+    itemInputError: {
+        borderColor: '#DC2626',
+    },
+    fieldErrorText: {
+        color: '#DC2626',
+        fontSize: 12,
+        fontFamily: 'Poppins-Regular',
+        marginTop: 4,
     },
 
     fab: {
@@ -674,5 +1073,52 @@ const styles = StyleSheet.create({
     plusIcon: {
         width: 38,
         height: 38,
+    },
+    errorBanner: {
+        width: '100%',
+        backgroundColor: '#FEE2E2',
+        borderLeftWidth: 4,
+        borderLeftColor: '#DC2626',
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginTop: 12,
+    },
+    errorText: {
+        fontFamily: 'Poppins-Medium',
+        color: '#991B1B',
+        fontSize: 13,
+    },
+    successBanner: {
+        width: '100%',
+        backgroundColor: '#D1FAE5',
+        borderLeftWidth: 4,
+        borderLeftColor: '#28A745',
+        borderRadius: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 15,
+        marginBottom: 15, marginHorizontal: 15
+    },
+    successText: {
+        fontFamily: 'Poppins-SemiBold',
+        color: '#065F46',
+        fontSize: 14,
+    },
+    emptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+    },
+    emptyStateText: {
+        fontFamily: 'Poppins-SemiBold',
+        color: '#6B7280',
+        fontSize: 16,
+    },
+    emptyStateSubText: {
+        fontFamily: 'Poppins-Regular',
+        color: '#9CA3AF',
+        fontSize: 13,
+        marginTop: 6,
+        textAlign: 'center',
     },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 
 const MONTH_NAMES = [
@@ -21,15 +21,25 @@ function getCalendarCells(year: number, month: number): (number | null)[] {
     return cells;
 }
 
-const SimpleCalendar = () => {
+interface SimpleCalendarProps {
+    selectedDate?: Date;
+}
+
+const SimpleCalendar = ({ selectedDate }: SimpleCalendarProps) => {
     const today = new Date();
 
     // ✅ state for current view
-    const [currentDate, setCurrentDate] = useState(today);
+    const [currentDate, setCurrentDate] = useState(selectedDate ?? today);
+
+    // Auto-navigate to selectedDate's month whenever it changes
+    useEffect(() => {
+        if (selectedDate) {
+            setCurrentDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+        }
+    }, [selectedDate]);
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-    const todayDate = today.getDate();
 
     const cells = getCalendarCells(year, month);
 
@@ -78,20 +88,21 @@ const SimpleCalendar = () => {
             {Array.from({ length: cells.length / 7 }).map((_, rowIdx) => (
                 <View key={rowIdx} style={styles.row}>
                     {cells.slice(rowIdx * 7, rowIdx * 7 + 7).map((day, colIdx) => {
-                        const isToday =
-                            day === todayDate &&
-                            month === today.getMonth() &&
-                            year === today.getFullYear();
+                        const isSelected =
+                            selectedDate != null &&
+                            day === selectedDate.getDate() &&
+                            month === selectedDate.getMonth() &&
+                            year === selectedDate.getFullYear();
 
                         return (
                             <View key={colIdx} style={styles.cell}>
                                 <View style={[
                                     styles.circle,
-                                    isToday && styles.todayCircle
+                                    isSelected && styles.selectedCircle,
                                 ]}>
                                     <Text style={[
                                         styles.dateText,
-                                        isToday && styles.todayText,
+                                        isSelected && styles.selectedText,
                                         !day && styles.hiddenText
                                     ]}>
                                         {day ?? 0}
@@ -166,7 +177,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
 
-    todayCircle: {
+    selectedCircle: {
         backgroundColor: GREEN,
     },
 
@@ -176,7 +187,7 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins-Medium',
     },
 
-    todayText: {
+    selectedText: {
         color: '#fff',
         fontWeight: '700',
         fontFamily: 'Poppins-Medium',

@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 
-const CustomToggle = () => {
-    const [isOn, setIsOn] = useState(true);
+interface CustomToggleProps {
+    value?: boolean;
+    onValueChange?: (value: boolean) => void;
+}
+
+const CustomToggle = ({ value, onValueChange }: CustomToggleProps) => {
+    const [internalValue, setInternalValue] = useState(false);
+    const isOn = value ?? internalValue;
     const translateX = useState(new Animated.Value(isOn ? 26 : 2))[0];
 
-    const toggleSwitch = () => {
+    useEffect(() => {
         Animated.timing(translateX, {
-            toValue: isOn ? 2 : 26,
+            toValue: isOn ? 26 : 2,
+            duration: 200,
+            useNativeDriver: true,
+        }).start();
+    }, [isOn, translateX]);
+
+    const toggleSwitch = () => {
+        const nextValue = !isOn;
+
+        Animated.timing(translateX, {
+            toValue: nextValue ? 26 : 2,
             duration: 200,
             useNativeDriver: true,
         }).start();
 
-        setIsOn(!isOn);
+        if (value === undefined) {
+            setInternalValue(nextValue);
+        }
+
+        onValueChange?.(nextValue);
     };
 
     return (
